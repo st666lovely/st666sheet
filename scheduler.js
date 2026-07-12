@@ -85,18 +85,31 @@ function planForShift(shift, shiftMonth) {
   const windowStart = Math.max(shiftWindowStart, now.getTime() + 60 * 1000);
   if (windowEnd <= windowStart) return { todayStr, entries: [] };
 
-  const count = randomInt(CHECKINS_PER_SHIFT_MIN, CHECKINS_PER_SHIFT_MAX);
-  const totalMs = windowEnd - windowStart;
   const gapMs = MIN_GAP_BETWEEN_CHECKINS_MINUTES * 60 * 1000;
+  const totalMs = windowEnd - windowStart;
 
-  const slot = totalMs / count;
+  // So mocs mong muon (2-3), nhung neu khung gio con lai qua ngan (vd bot moi lap lich luc ca
+  // sap het) thi TU CO GIAN xuong it mocs hon de van dam bao dung khoang cach toi thieu giua cac mocs -
+  // khong nhoi ep nhieu mocs vao khung gio ngan gay ra cac mocs qua gan nhau.
+  const desiredCount = randomInt(CHECKINS_PER_SHIFT_MIN, CHECKINS_PER_SHIFT_MAX);
+  const maxFeasibleCount = Math.max(1, Math.floor(totalMs / gapMs) + 1);
+  const count = Math.min(desiredCount, maxFeasibleCount);
+
+  // Phan bo ngau nhien nhung van dam bao khoang cach >= gapMs giua 2 mocs lien tiep:
+  // slack = phan thoi gian "du ra" ngoai cac khoang cach toi thieu bat buoc, chia ngau nhien
+  // vao truoc/giua/sau cac mocs (kieu random stick-breaking) de vi tri mocs khong bi don deu mot cach may moc.
+  const mandatoryMs = (count - 1) * gapMs;
+  const slack = Math.max(0, totalMs - mandatoryMs);
+
+  const cuts = Array.from({ length: count + 1 }, () => Math.random());
+  const cutSum = cuts.reduce((a, b) => a + b, 0);
+  const slackParts = cuts.map((c) => (c / cutSum) * slack);
+
   const times = [];
+  let cursor = windowStart + slackParts[0];
   for (let i = 0; i < count; i++) {
-    const slotStart = windowStart + i * slot;
-    const slotEnd = windowStart + (i + 1) * slot;
-    const maxOffset = Math.max(slotEnd - slotStart - gapMs, 0);
-    const t = slotStart + Math.random() * (maxOffset || slotEnd - slotStart);
-    times.push(Math.round(t));
+    times.push(Math.round(cursor));
+    cursor += gapMs + slackParts[i + 1];
   }
 
   const entries = times
