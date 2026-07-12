@@ -78,8 +78,11 @@ function planForShift(shift, shiftMonth) {
   }
 
   const bufferMs = SHIFT_EDGE_BUFFER_MINUTES * 60 * 1000;
-  const windowStart = shiftStartUtc.getTime() + bufferMs;
+  const shiftWindowStart = shiftStartUtc.getTime() + bufferMs;
   const windowEnd = shiftEndUtc.getTime() - bufferMs;
+  // Neu bot moi lap lich luc ca da dien ra duoc 1 luc (vd bot vua deploy/restart giua ca),
+  // tinh tu THOI DIEM HIEN TAI thay vi tu dau ca, de khong bi mat bot mocs random do da "qua gio".
+  const windowStart = Math.max(shiftWindowStart, now.getTime() + 60 * 1000);
   if (windowEnd <= windowStart) return { todayStr, entries: [] };
 
   const count = randomInt(CHECKINS_PER_SHIFT_MIN, CHECKINS_PER_SHIFT_MAX);
@@ -138,9 +141,7 @@ async function sendCheckinRequest(bot, entry) {
   }
 
   try {
-    // Mention bang tg://user?id=... hoat dong ke ca nguoi khong co username,
-    // va khong yeu cau ho phai /start bot rieng.
-    const mention = `[${escapeMarkdown(entry.name)}](tg://user?id=${entry.telegramId})`;
+    const mention = await resolveMention(bot, entry.telegramId, entry.name);
     const sent = await bot.telegram.sendMessage(
       GROUP_CHAT_ID,
       `🔔 ${mention} YÊU CẦU ĐIỂM DANH\n\nVui lòng REPLY tin nhắn này kèm ảnh TAY của bạn cùng MÀN HÌNH MÁY TÍNH đang hiển thị GIỜ hiện tại, trong vòng ${RESPONSE_DEADLINE_MINUTES} phút.`,
@@ -170,6 +171,26 @@ function escapeMarkdown(text) {
   return String(text).replace(/([_*[\]()~`>#+\-=|{}.!])/g, '\\$1');
 }
 
+// Lay thong tin thanh vien that trong nhom de tag chinh xac:
+// - Uu tien @username that neu co (luon tag/thong bao duoc chac chan)
+// - Neu khong co username, dung mention link tg://user?id=... (goi getChatMember truoc
+//   cung giup Telegram "biet" user nay trong nhom nen mention link moi hien thi dung, khong bi rot ve chu thuong)
+async function resolveMention(bot, telegramId, fallbackName) {
+  try {
+    const member = await bot.telegram.getChatMember(GROUP_CHAT_ID, telegramId);
+    const user = member.user;
+    if (user.username) return `@${user.username}`;
+    const fullName = [user.first_name, user.last_name].filter(Boolean).join(' ') || fallbackName;
+    return `[${escapeMarkdown(fullName)}](tg://user?id=${telegramId})`;
+  } catch (err) {
+    console.error(
+      `[scheduler] Không lấy được thông tin thành viên ${telegramId} trong nhóm (có thể họ chưa từng nhắn gì trong nhóm, hoặc không còn trong nhóm):`,
+      err.message
+    );
+    return `[${escapeMarkdown(fallbackName)}](tg://user?id=${telegramId})`;
+  }
+}
+
 async function checkDeadline(bot, entryId) {
   const current = getTodayPlan();
   if (!current) return;
@@ -189,7 +210,7 @@ async function checkDeadline(bot, entryId) {
 
   if (GROUP_CHAT_ID) {
     const timeStr = formatLocalTime(entry.time, entry.location);
-    const mention = `[${escapeMarkdown(entry.name)}](tg://user?id=${entry.telegramId})`;
+    const mention = await resolveMention(bot, entry.telegramId, entry.name);
     try {
       await bot.telegram.sendMessage(
         GROUP_CHAT_ID,
