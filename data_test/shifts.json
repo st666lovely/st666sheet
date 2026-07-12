@@ -1,0 +1,18 @@
+{
+  "999": {
+    "telegramId": "999",
+    "name": "Test User",
+    "location": "VN",
+    "shiftStart": "15:00",
+    "shiftEnd": "19:59",
+    "days": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+    ]
+  }
+}
