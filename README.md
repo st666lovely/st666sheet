@@ -51,6 +51,7 @@ Lưu ý: nếu file upload là **tháng khác** với lịch đang lưu, bấm n
 
 - `/dsca` — xem tổng quan lịch tháng đang lưu (số ngày làm/nghỉ mỗi người).
 - `/xemca <TelegramID>` — xem chi tiết lịch từng ngày trong tháng của 1 người.
+- `/lichhomnay` — xem các mốc điểm danh đã lập lịch cho hôm nay (giờ cụ thể + trạng thái: đang chờ / đã điểm danh / chưa điểm danh). Dùng để kiểm tra ngay không cần đợi, khỏi phải đoán.
 - `/baocao` — báo cáo nhanh số lần điểm danh thành công / chưa điểm danh trong ngày.
 - Gửi file Excel/CSV kèm caption tháng — cập nhật lịch (xem mục 4).
 

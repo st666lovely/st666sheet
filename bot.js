@@ -6,7 +6,7 @@ const https = require('https');
 const crypto = require('crypto');
 
 const { BOT_TOKEN, ADMIN_IDS, GROUP_CHAT_ID } = require('./config');
-const { getShifts, getAttendanceLog } = require('./storage');
+const { getShifts, getAttendanceLog, getTodayPlan } = require('./storage');
 const { parseShiftFile, mergeAndSaveShifts, replaceAndSaveShifts } = require('./shiftManager');
 const { markCheckinDone, runDailyPlanning } = require('./scheduler');
 
@@ -230,7 +230,26 @@ bot.command('baocao', (ctx) => {
   ctx.reply(msg);
 });
 
-// Xem tổng quan lịch tháng đang lưu - chỉ admin
+// Xem cac moc diem danh da len lich cho HOM NAY (tren toan bo may ngay gan day trong bo nho) - chi admin
+bot.command('lichhomnay', (ctx) => {
+  if (!isAdmin(ctx)) return ctx.reply('Bạn không có quyền xem.');
+  const plan = getTodayPlan();
+  if (!plan || plan.checkins.length === 0) {
+    return ctx.reply(
+      'Chưa có mốc điểm danh nào được lập lịch. Có thể do: chưa upload lịch tháng, hôm nay là ngày nghỉ, hoặc bot vừa khởi động lại và đang chờ chu kỳ kiểm tra 10 phút tiếp theo.'
+    );
+  }
+
+  const sorted = [...plan.checkins].sort((a, b) => a.time - b.time);
+  const statusLabel = { pending: '⏳ chờ', done: '✅ đã điểm danh', missed: '⚠️ chưa điểm danh' };
+
+  let msg = `📋 Các mốc điểm danh đã lập lịch (${sorted.length} mốc):\n\n`;
+  sorted.forEach((c) => {
+    const timeStr = new Date(c.time).toLocaleString('vi-VN');
+    msg += `${timeStr} — ${c.name}: ${statusLabel[c.status] || c.status}\n`;
+  });
+  ctx.reply(msg);
+});
 bot.command('dsca', (ctx) => {
   if (!isAdmin(ctx)) return ctx.reply('Bạn không có quyền xem.');
   const data = getShifts();
