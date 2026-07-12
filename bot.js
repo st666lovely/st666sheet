@@ -1,8 +1,9 @@
-const { Telegraf } = require('telegraf');
+const { Telegraf, Markup } = require('telegraf');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const https = require('https');
+const crypto = require('crypto');
 
 const { BOT_TOKEN, ADMIN_IDS, GROUP_CHAT_ID } = require('./config');
 const { getShifts, getAttendanceLog } = require('./storage');
@@ -14,6 +15,18 @@ if (!BOT_TOKEN) {
 }
 
 const bot = new Telegraf(BOT_TOKEN);
+
+// Luu tam ket qua da parse tu file, cho admin bam nut chon Merge/Ghi de.
+// key = token ngau nhien, value = { shifts, errors, count, createdAt }
+const pendingUploads = new Map();
+const PENDING_TTL_MS = 15 * 60 * 1000; // token het han sau 15 phut neu khong bam nut
+
+function cleanupExpiredUploads() {
+  const now = Date.now();
+  for (const [token, data] of pendingUploads.entries()) {
+    if (now - data.createdAt > PENDING_TTL_MS) pendingUploads.delete(token);
+  }
+}
 
 function isAdmin(ctx) {
   return ADMIN_IDS.includes(String(ctx.from.id));
@@ -44,7 +57,7 @@ bot.command('id', (ctx) => {
   ctx.reply(`Telegram ID của bạn/nhóm này là: ${ctx.chat.id}`);
 });
 
-// Admin gửi file excel/csv danh sách ca -> mặc định merge (cập nhật/thêm), gõ kèm caption "ghideu" để ghi đè toàn bộ
+// Admin gửi file excel/csv danh sách ca -> bot đọc xong sẽ hỏi lại bằng nút bấm: Merge / Ghi đè / Huỷ
 bot.on('document', async (ctx) => {
   if (!isAdmin(ctx)) {
     return ctx.reply('Bạn không có quyền cập nhật danh sách ca làm.');
@@ -68,27 +81,71 @@ bot.on('document', async (ctx) => {
       return ctx.reply('Không đọc được dòng nào hợp lệ từ file.\n' + errors.join('\n'));
     }
 
-    const caption = (ctx.message.caption || '').toLowerCase();
-    if (caption.includes('ghideu') || caption.includes('ghi đè')) {
-      replaceAndSaveShifts(shifts);
-    } else {
-      mergeAndSaveShifts(shifts);
-    }
+    cleanupExpiredUploads();
+    const token = crypto.randomBytes(4).toString('hex');
+    pendingUploads.set(token, { shifts, errors, count, createdAt: Date.now() });
 
-    // lập lại lịch điểm danh hôm nay ngay để áp dụng danh sách mới
-    runDailyPlanning(bot);
-
-    let msg = `✅ Đã cập nhật ${count} người vào danh sách ca làm.`;
+    const currentCount = Object.keys(getShifts()).length;
+    let msg = `📄 Đọc được ${count} người từ file.`;
     if (errors.length) {
-      msg += `\n\n⚠️ Một số dòng bị bỏ qua:\n${errors.slice(0, 10).join('\n')}`;
-      if (errors.length > 10) msg += `\n... và ${errors.length - 10} dòng khác.`;
+      msg += `\n⚠️ Bỏ qua ${errors.length} dòng lỗi:\n${errors.slice(0, 8).join('\n')}`;
+      if (errors.length > 8) msg += `\n... và ${errors.length - 8} dòng khác.`;
     }
-    ctx.reply(msg);
+    msg += `\n\nDanh sách hiện đang lưu: ${currentCount} người.`;
+    msg += `\nBạn muốn áp dụng file này như thế nào?`;
+    msg += `\n• Merge = cập nhật/thêm mới, giữ nguyên người không có trong file.`;
+    msg += `\n• Ghi đè = xoá sạch danh sách cũ, thay hoàn toàn bằng file này.`;
+
+    ctx.reply(
+      msg,
+      Markup.inlineKeyboard([
+        Markup.button.callback('🔀 Merge', `merge_${token}`),
+        Markup.button.callback('🗑️ Ghi đè toàn bộ', `replace_${token}`),
+        Markup.button.callback('❌ Huỷ', `cancel_${token}`),
+      ])
+    );
   } catch (err) {
     console.error('[bot] Lỗi xử lý file ca làm:', err);
     ctx.reply('Có lỗi khi đọc file, kiểm tra lại định dạng file (xem README mẫu cột).');
   }
 });
+
+async function handleUploadDecision(ctx, action) {
+  if (!isAdmin(ctx)) {
+    return ctx.answerCbQuery('Bạn không có quyền thao tác này.');
+  }
+
+  const token = ctx.match[1];
+  const pending = pendingUploads.get(token);
+  if (!pending) {
+    await ctx.answerCbQuery('Yêu cầu đã hết hạn, gửi lại file nhé.');
+    return ctx.editMessageText('⌛ Yêu cầu này đã hết hạn (hoặc đã được xử lý). Gửi lại file để thử lại.');
+  }
+  pendingUploads.delete(token);
+
+  if (action === 'cancel') {
+    await ctx.answerCbQuery('Đã huỷ.');
+    return ctx.editMessageText('❌ Đã huỷ, danh sách ca làm giữ nguyên như cũ.');
+  }
+
+  if (action === 'replace') {
+    replaceAndSaveShifts(pending.shifts);
+  } else {
+    mergeAndSaveShifts(pending.shifts);
+  }
+
+  runDailyPlanning(bot);
+
+  const label = action === 'replace' ? 'Ghi đè toàn bộ' : 'Merge';
+  await ctx.answerCbQuery('Đã áp dụng!');
+  ctx.editMessageText(
+    `✅ Đã áp dụng (${label}) ${pending.count} người vào danh sách ca làm.\nLịch điểm danh hôm nay đã được cập nhật.`
+  );
+}
+
+bot.action(/^merge_(.+)$/, (ctx) => handleUploadDecision(ctx, 'merge'));
+bot.action(/^replace_(.+)$/, (ctx) => handleUploadDecision(ctx, 'replace'));
+bot.action(/^cancel_(.+)$/, (ctx) => handleUploadDecision(ctx, 'cancel'));
 
 // Nhận ảnh điểm danh
 bot.on('photo', async (ctx) => {
