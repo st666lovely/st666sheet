@@ -52,11 +52,36 @@ function saveTodayPlan(plan) {
   writeJson('today_plan.json', plan);
 }
 
+// Cap nhat today_plan.json AN TOAN khi co nhieu thao tac doc-sua-ghi xay ra gan nhau
+// (vd nhieu nguoi cung duoc gui yeu cau diem danh, hoac vua gui yeu cau vua co nguoi reply anh cung luc).
+// Neu khong co co che nay, 2 thao tac doc-sua-ghi chong cheo co the lam MAT du lieu cua nhau
+// (thao tac ghi sau de len ban doc cu, xoa mat thay doi cua thao tac truoc).
+// Dua toan bo cac lan doc-sua-ghi vao 1 hang doi tuan tu (chi 1 luc chay 1 lan) de tranh mat du lieu.
+let planQueue = Promise.resolve();
+function updateTodayPlan(mutator) {
+  const task = planQueue.then(() => {
+    const plan = readJson('today_plan.json', { checkins: [] }) || { checkins: [] };
+    const result = mutator(plan);
+    const finalPlan = result || plan;
+    writeJson('today_plan.json', finalPlan);
+    return finalPlan;
+  });
+  // giu hang doi song ngay ca khi 1 buoc bi loi, khong lam ket hang doi vinh vien
+  planQueue = task.catch(() => {});
+  return task;
+}
+
 // ---- Log toàn bộ lịch sử điểm danh (để làm báo cáo) ----
+// Cung dung hang doi tuan tu nhu tren de tranh mat dong log khi nhieu nguoi diem danh gan nhau
+let logQueue = Promise.resolve();
 function appendAttendanceLog(entry) {
-  const log = readJson('attendance_log.json', []);
-  log.push(entry);
-  writeJson('attendance_log.json', log);
+  const task = logQueue.then(() => {
+    const log = readJson('attendance_log.json', []);
+    log.push(entry);
+    writeJson('attendance_log.json', log);
+  });
+  logQueue = task.catch(() => {});
+  return task;
 }
 function getAttendanceLog() {
   return readJson('attendance_log.json', []);
@@ -67,6 +92,7 @@ module.exports = {
   saveShifts,
   getTodayPlan,
   saveTodayPlan,
+  updateTodayPlan,
   appendAttendanceLog,
   getAttendanceLog,
 };
