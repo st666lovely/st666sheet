@@ -191,7 +191,7 @@ bot.on('photo', async (ctx) => {
 
   const photos = ctx.message.photo;
   const largest = photos[photos.length - 1];
-  const entry = markCheckinDone(ctx.from.id, largest.file_id);
+  const entry = await markCheckinDone(ctx.from.id, largest.file_id);
 
   if (!entry) {
     return ctx.reply('Hiện không có yêu cầu điểm danh nào đang chờ từ bạn.', {
