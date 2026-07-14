@@ -2,7 +2,7 @@ const cron = require('node-cron');
 const {
   getShifts,
   getTodayPlan,
-  saveTodayPlan,
+  updateTodayPlan,
   appendAttendanceLog,
 } = require('./storage');
 const {
@@ -161,14 +161,11 @@ async function sendCheckinRequest(bot, entry) {
       { parse_mode: 'Markdown' }
     );
 
-    const plan = getTodayPlan();
-    if (plan) {
+    await updateTodayPlan((plan) => {
       const e = plan.checkins.find((c) => c.id === entry.id);
-      if (e) {
-        e.requestMessageId = sent.message_id;
-        saveTodayPlan(plan);
-      }
-    }
+      if (e) e.requestMessageId = sent.message_id;
+      return plan;
+    });
   } catch (err) {
     console.error(`[scheduler] Không gửi được yêu cầu điểm danh cho ${entry.telegramId}:`, err.message);
   }
@@ -205,29 +202,32 @@ async function resolveMention(bot, telegramId, fallbackName) {
 }
 
 async function checkDeadline(bot, entryId) {
-  const current = getTodayPlan();
-  if (!current) return;
-  const entry = current.checkins.find((c) => c.id === entryId);
-  if (!entry || entry.status !== 'pending') return; // da diem danh roi thi thoi
+  let missedEntry = null;
+  await updateTodayPlan((plan) => {
+    const entry = plan.checkins.find((c) => c.id === entryId);
+    if (!entry || entry.status !== 'pending') return plan; // da diem danh roi thi thoi, hoac entry khong ton tai
+    entry.status = 'missed';
+    missedEntry = entry;
+    return plan;
+  });
 
-  entry.status = 'missed';
-  saveTodayPlan(current);
+  if (!missedEntry) return;
 
-  appendAttendanceLog({
-    telegramId: entry.telegramId,
-    name: entry.name,
-    scheduledTime: new Date(entry.time).toISOString(),
+  await appendAttendanceLog({
+    telegramId: missedEntry.telegramId,
+    name: missedEntry.name,
+    scheduledTime: new Date(missedEntry.time).toISOString(),
     status: 'missed',
     respondedAt: null,
   });
 
   if (GROUP_CHAT_ID) {
-    const timeStr = formatLocalTime(entry.time, entry.location);
-    const mention = await resolveMention(bot, entry.telegramId, entry.name);
+    const timeStr = formatLocalTime(missedEntry.time, missedEntry.location);
+    const mention = await resolveMention(bot, missedEntry.telegramId, missedEntry.name);
     try {
       await bot.telegram.sendMessage(
         GROUP_CHAT_ID,
-        `⚠️ ${mention} (ID: ${entry.telegramId}) CHƯA ĐIỂM DANH cho mốc ${timeStr}.`,
+        `⚠️ ${mention} (ID: ${missedEntry.telegramId}) CHƯA ĐIỂM DANH cho mốc ${timeStr}.`,
         { parse_mode: 'Markdown' }
       );
     } catch (err) {
@@ -237,30 +237,32 @@ async function checkDeadline(bot, entryId) {
 }
 
 // Goi khi co ai do gui anh - danh dau diem danh thanh cong neu dang co yeu cau pending
-function markCheckinDone(telegramId, photoFileId) {
-  const plan = getTodayPlan();
-  if (!plan) return null;
+async function markCheckinDone(telegramId, photoFileId) {
+  let doneEntry = null;
+  await updateTodayPlan((plan) => {
+    const entry = plan.checkins
+      .filter((c) => c.telegramId === String(telegramId) && c.status === 'pending')
+      .sort((a, b) => a.time - b.time)[0];
+    if (!entry) return plan;
 
-  const entry = plan.checkins
-    .filter((c) => c.telegramId === String(telegramId) && c.status === 'pending')
-    .sort((a, b) => a.time - b.time)[0];
-
-  if (!entry) return null;
-
-  entry.status = 'done';
-  entry.respondedAt = Date.now();
-  entry.photoFileId = photoFileId;
-  saveTodayPlan(plan);
-
-  appendAttendanceLog({
-    telegramId: entry.telegramId,
-    name: entry.name,
-    scheduledTime: new Date(entry.time).toISOString(),
-    status: 'done',
-    respondedAt: new Date(entry.respondedAt).toISOString(),
+    entry.status = 'done';
+    entry.respondedAt = Date.now();
+    entry.photoFileId = photoFileId;
+    doneEntry = entry;
+    return plan;
   });
 
-  return entry;
+  if (!doneEntry) return null;
+
+  await appendAttendanceLog({
+    telegramId: doneEntry.telegramId,
+    name: doneEntry.name,
+    scheduledTime: new Date(doneEntry.time).toISOString(),
+    status: 'done',
+    respondedAt: new Date(doneEntry.respondedAt).toISOString(),
+  });
+
+  return doneEntry;
 }
 
 // Don entry qua cu (planDate hon 2 ngay truoc) de file khong phinh to theo thoi gian.
@@ -274,32 +276,31 @@ function pruneOldEntries(plan) {
 // Kiem tra tung nhan vien: neu CHUA duoc lap lich cho ngay hien tai (theo mui gio rieng cua ho),
 // thi tao moc diem danh ngau nhien moi va lich cho ho. Cho phep nhieu khu vuc/mui gio khac nhau
 // "sang ngay moi" vao thoi diem khac nhau ma khong bi sot ai.
-function ensureAllShiftsPlanned(bot) {
+async function ensureAllShiftsPlanned(bot) {
   const shiftsData = getShifts(); // { month, employees } | null
-  let plan = getTodayPlan() || { checkins: [] };
-  plan = pruneOldEntries(plan);
 
-  if (!shiftsData || !shiftsData.employees) {
-    saveTodayPlan(plan);
-    return;
-  }
+  let addedEntries = [];
+  await updateTodayPlan((plan) => {
+    plan = pruneOldEntries(plan);
+    if (!shiftsData || !shiftsData.employees) return plan;
 
-  let addedCount = 0;
-  Object.values(shiftsData.employees).forEach((shift) => {
-    const { todayStr, entries } = planForShift(shift, shiftsData.month);
-    const alreadyPlanned = plan.checkins.some(
-      (c) => c.telegramId === shift.telegramId && c.planDate === todayStr
-    );
-    if (alreadyPlanned || entries.length === 0) return;
+    Object.values(shiftsData.employees).forEach((shift) => {
+      const { todayStr, entries } = planForShift(shift, shiftsData.month);
+      const alreadyPlanned = plan.checkins.some(
+        (c) => c.telegramId === shift.telegramId && c.planDate === todayStr
+      );
+      if (alreadyPlanned || entries.length === 0) return;
 
-    plan.checkins.push(...entries);
-    entries.forEach((entry) => scheduleCheckin(bot, entry));
-    addedCount += entries.length;
+      plan.checkins.push(...entries);
+      addedEntries.push(...entries);
+    });
+
+    return plan;
   });
 
-  saveTodayPlan(plan);
-  if (addedCount > 0) {
-    console.log(`[scheduler] Đã thêm lịch ${addedCount} lượt điểm danh mới.`);
+  addedEntries.forEach((entry) => scheduleCheckin(bot, entry));
+  if (addedEntries.length > 0) {
+    console.log(`[scheduler] Đã thêm lịch ${addedEntries.length} lượt điểm danh mới.`);
   }
 }
 
