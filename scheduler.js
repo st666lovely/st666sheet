@@ -12,6 +12,7 @@ const {
   SHIFT_EDGE_BUFFER_MINUTES,
   RESPONSE_DEADLINE_MINUTES,
   MIN_GAP_BETWEEN_CHECKINS_MINUTES,
+  MAX_EDGE_SLACK_MINUTES,
 } = require('./config');
 
 // Mui gio theo khu vuc - them dia diem moi o day neu can
@@ -95,21 +96,32 @@ function planForShift(shift, shiftMonth) {
   const maxFeasibleCount = Math.max(1, Math.floor(totalMs / gapMs) + 1);
   const count = Math.min(desiredCount, maxFeasibleCount);
 
-  // Phan bo ngau nhien nhung van dam bao khoang cach >= gapMs giua 2 mocs lien tiep:
-  // slack = phan thoi gian "du ra" ngoai cac khoang cach toi thieu bat buoc, chia ngau nhien
-  // vao truoc/giua/sau cac mocs (kieu random stick-breaking) de vi tri mocs khong bi don deu mot cach may moc.
+  // Phan bo ngau nhien nhung van dam bao khoang cach >= gapMs giua 2 mocs lien tiep, DONG THOI
+  // gioi han slack o 2 dau (truoc moc dau / sau moc cuoi) de luon co it nhat 1 moc gan dau ca
+  // va 1 moc gan cuoi ca - khong de "khoang du" ngau nhien don het vao 1 phia (vd don het vao
+  // sau moc cuoi lam mat mocs gan gio tan ca).
   const mandatoryMs = (count - 1) * gapMs;
   const slack = Math.max(0, totalMs - mandatoryMs);
+  const maxEdgeMs = MAX_EDGE_SLACK_MINUTES * 60 * 1000;
 
-  const cuts = Array.from({ length: count + 1 }, () => Math.random());
-  const cutSum = cuts.reduce((a, b) => a + b, 0);
-  const slackParts = cuts.map((c) => (c / cutSum) * slack);
+  let edgeBefore = Math.random() * Math.min(maxEdgeMs, slack);
+  let edgeAfter = Math.random() * Math.min(maxEdgeMs, Math.max(0, slack - edgeBefore));
+  let middleSlack = Math.max(0, slack - edgeBefore - edgeAfter);
 
   const times = [];
-  let cursor = windowStart + slackParts[0];
-  for (let i = 0; i < count; i++) {
-    times.push(Math.round(cursor));
-    cursor += gapMs + slackParts[i + 1];
+  if (count === 1) {
+    // chi 1 moc thi random tu do trong ca, khong can gioi han edge
+    times.push(Math.round(windowStart + Math.random() * totalMs));
+  } else {
+    const middleCuts = Array.from({ length: count - 1 }, () => Math.random());
+    const middleCutSum = middleCuts.reduce((a, b) => a + b, 0) || 1;
+    const middleParts = middleCuts.map((c) => (c / middleCutSum) * middleSlack);
+
+    let cursor = windowStart + edgeBefore;
+    for (let i = 0; i < count; i++) {
+      times.push(Math.round(cursor));
+      if (i < count - 1) cursor += gapMs + middleParts[i];
+    }
   }
 
   const entries = times
