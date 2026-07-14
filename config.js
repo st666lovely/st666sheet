@@ -22,4 +22,10 @@ module.exports = {
 
   // khoảng cách tối thiểu giữa 2 mốc điểm danh ngẫu nhiên trong cùng 1 ca (phút)
   MIN_GAP_BETWEEN_CHECKINS_MINUTES: 45,
+
+  // gioi han toi da (phut) ma moc DAU TIEN co the troi xa sau khi bat dau ca, va moc CUOI CUNG
+  // co the troi xa truoc khi tan ca - dam bao luon co it nhat 1 moc gan dau ca va 1 moc gan cuoi ca,
+  // khong de "khoang du" ngau nhien don het vao 1 phia lam mat mocs gan cuoi ca (vd ca den 2h sang
+  // nhung moc cuoi lai roi vao tam nua dem).
+  MAX_EDGE_SLACK_MINUTES: 60,
 };
