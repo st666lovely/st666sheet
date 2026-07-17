@@ -12,7 +12,7 @@ const {
   SHIFT_EDGE_BUFFER_MINUTES,
   RESPONSE_DEADLINE_MINUTES,
   MIN_GAP_BETWEEN_CHECKINS_MINUTES,
-  MAX_EDGE_SLACK_MINUTES,
+  MAX_GAP_BETWEEN_CHECKINS_MINUTES,
 } = require('./config');
 
 // Mui gio theo khu vuc - them dia diem moi o day neu can
@@ -86,41 +86,33 @@ function planForShift(shift, shiftMonth) {
   const windowStart = Math.max(shiftWindowStart, now.getTime() + 60 * 1000);
   if (windowEnd <= windowStart) return { todayStr, entries: [] };
 
-  const gapMs = MIN_GAP_BETWEEN_CHECKINS_MINUTES * 60 * 1000;
   const totalMs = windowEnd - windowStart;
+  const minGapMs = MIN_GAP_BETWEEN_CHECKINS_MINUTES * 60 * 1000;
+  const maxGapMs = MAX_GAP_BETWEEN_CHECKINS_MINUTES * 60 * 1000;
 
-  // So mocs mong muon (2-3), nhung neu khung gio con lai qua ngan (vd bot moi lap lich luc ca
-  // sap het) thi TU CO GIAN xuong it mocs hon de van dam bao dung khoang cach toi thieu giua cac mocs -
-  // khong nhoi ep nhieu mocs vao khung gio ngan gay ra cac mocs qua gan nhau.
+  // So mocs mong muon (2-3). Neu khung gio con lai qua ngan (khong du cho it nhat 2 mocs cach nhau
+  // toi thieu minGapMs) thi TU CO GIAN xuong 1 moc, tranh nhoi ep gay ra cac mocs qua gan nhau.
   const desiredCount = randomInt(CHECKINS_PER_SHIFT_MIN, CHECKINS_PER_SHIFT_MAX);
-  const maxFeasibleCount = Math.max(1, Math.floor(totalMs / gapMs) + 1);
+  const maxFeasibleCount = Math.max(1, Math.floor(totalMs / minGapMs) + 1);
   const count = Math.min(desiredCount, maxFeasibleCount);
 
-  // Phan bo ngau nhien nhung van dam bao khoang cach >= gapMs giua 2 mocs lien tiep, DONG THOI
-  // gioi han slack o 2 dau (truoc moc dau / sau moc cuoi) de luon co it nhat 1 moc gan dau ca
-  // va 1 moc gan cuoi ca - khong de "khoang du" ngau nhien don het vao 1 phia (vd don het vao
-  // sau moc cuoi lam mat mocs gan gio tan ca).
-  const mandatoryMs = (count - 1) * gapMs;
-  const slack = Math.max(0, totalMs - mandatoryMs);
-  const maxEdgeMs = MAX_EDGE_SLACK_MINUTES * 60 * 1000;
-
-  let edgeBefore = Math.random() * Math.min(maxEdgeMs, slack);
-  let edgeAfter = Math.random() * Math.min(maxEdgeMs, Math.max(0, slack - edgeBefore));
-  let middleSlack = Math.max(0, slack - edgeBefore - edgeAfter);
-
+  // Khoang cach giua 2 moc lien tiep LUON nam trong [minGapMs, maxGapMs] (vd 60-90 phut) - khong random
+  // lan man theo ca het ca dai hay ngan. Ca cum mocs duoc dat vao 1 vi tri ngau nhien trong khung gio ca,
+  // KHONG bat buoc phai phu tu dau den cuoi ca.
   const times = [];
   if (count === 1) {
-    // chi 1 moc thi random tu do trong ca, khong can gioi han edge
     times.push(Math.round(windowStart + Math.random() * totalMs));
   } else {
-    const middleCuts = Array.from({ length: count - 1 }, () => Math.random());
-    const middleCutSum = middleCuts.reduce((a, b) => a + b, 0) || 1;
-    const middleParts = middleCuts.map((c) => (c / middleCutSum) * middleSlack);
-
-    let cursor = windowStart + edgeBefore;
+    const gaps = [];
+    for (let i = 0; i < count - 1; i++) {
+      gaps.push(minGapMs + Math.random() * (maxGapMs - minGapMs));
+    }
+    const span = gaps.reduce((a, b) => a + b, 0);
+    const maxStartOffset = Math.max(0, totalMs - span);
+    let cursor = windowStart + Math.random() * maxStartOffset;
     for (let i = 0; i < count; i++) {
       times.push(Math.round(cursor));
-      if (i < count - 1) cursor += gapMs + middleParts[i];
+      if (i < count - 1) cursor += gaps[i];
     }
   }
 
