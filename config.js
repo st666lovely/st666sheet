@@ -20,12 +20,7 @@ module.exports = {
   // thời gian tối đa (phút) để phản hồi ảnh trước khi bị tính là "chưa điểm danh"
   RESPONSE_DEADLINE_MINUTES: parseInt(process.env.RESPONSE_DEADLINE_MINUTES || '10', 10),
 
-  // khoảng cách tối thiểu giữa 2 mốc điểm danh ngẫu nhiên trong cùng 1 ca (phút)
-  MIN_GAP_BETWEEN_CHECKINS_MINUTES: 45,
-
-  // gioi han toi da (phut) ma moc DAU TIEN co the troi xa sau khi bat dau ca, va moc CUOI CUNG
-  // co the troi xa truoc khi tan ca - dam bao luon co it nhat 1 moc gan dau ca va 1 moc gan cuoi ca,
-  // khong de "khoang du" ngau nhien don het vao 1 phia lam mat mocs gan cuoi ca (vd ca den 2h sang
-  // nhung moc cuoi lai roi vao tam nua dem).
-  MAX_EDGE_SLACK_MINUTES: 60,
+  // khoảng cách giữa 2 mốc điểm danh liên tiếp của cùng 1 người (phút) - luôn nằm trong khoảng này
+  MIN_GAP_BETWEEN_CHECKINS_MINUTES: 60,
+  MAX_GAP_BETWEEN_CHECKINS_MINUTES: 90,
 };
