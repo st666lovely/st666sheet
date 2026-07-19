@@ -10,7 +10,8 @@ module.exports = {
   DATA_DIR: process.env.DATA_DIR || './data', // trên Render nhớ trỏ vào persistent disk, vd /data
   PORT: process.env.PORT || 3000,
 
-  // số lần điểm danh ngẫu nhiên trong 1 ca (m chọn 2-3 lần)
+  // (Khong con dung nua ke tu ban rai deu suot ca - so lan diem danh gio TU DONG theo do dai ca.
+  //  Giu lai day de tuong thich nguoc, khong anh huong gi.)
   CHECKINS_PER_SHIFT_MIN: 2,
   CHECKINS_PER_SHIFT_MAX: 3,
 
@@ -20,7 +21,9 @@ module.exports = {
   // thời gian tối đa (phút) để phản hồi ảnh trước khi bị tính là "chưa điểm danh"
   RESPONSE_DEADLINE_MINUTES: parseInt(process.env.RESPONSE_DEADLINE_MINUTES || '10', 10),
 
-  // khoảng cách giữa 2 mốc điểm danh liên tiếp của cùng 1 người (phút) - luôn nằm trong khoảng này
+  // Khoang cach giua 2 lan diem danh lien tiep cua cung 1 nguoi (phut). Bot rai deu cac moc suot ca,
+  // moi moc cach moc truoc mot khoang ngau nhien nam trong [MIN, MAX] nay. Ca cang dai cang nhieu moc.
+  // Muon it lan hon thi tang 2 con so nay len (vd 90 va 120); muon nhieu lan hon thi giam xuong.
   MIN_GAP_BETWEEN_CHECKINS_MINUTES: 60,
   MAX_GAP_BETWEEN_CHECKINS_MINUTES: 90,
 };
