@@ -90,30 +90,20 @@ function planForShift(shift, shiftMonth) {
   const minGapMs = MIN_GAP_BETWEEN_CHECKINS_MINUTES * 60 * 1000;
   const maxGapMs = MAX_GAP_BETWEEN_CHECKINS_MINUTES * 60 * 1000;
 
-  // So mocs mong muon (2-3). Neu khung gio con lai qua ngan (khong du cho it nhat 2 mocs cach nhau
-  // toi thieu minGapMs) thi TU CO GIAN xuong 1 moc, tranh nhoi ep gay ra cac mocs qua gan nhau.
-  const desiredCount = randomInt(CHECKINS_PER_SHIFT_MIN, CHECKINS_PER_SHIFT_MAX);
-  const maxFeasibleCount = Math.max(1, Math.floor(totalMs / minGapMs) + 1);
-  const count = Math.min(desiredCount, maxFeasibleCount);
-
-  // Khoang cach giua 2 moc lien tiep LUON nam trong [minGapMs, maxGapMs] (vd 60-90 phut) - khong random
-  // lan man theo ca het ca dai hay ngan. Ca cum mocs duoc dat vao 1 vi tri ngau nhien trong khung gio ca,
-  // KHONG bat buoc phai phu tu dau den cuoi ca.
+  // RAI DEU cac moc diem danh XUYEN SUOT ca: bat dau tu gan dau ca, moi moc cach moc truoc
+  // 60-90 phut (ngau nhien), lap cho toi khi het ca. Ca cang dai thi cang nhieu moc (phu het dau -> cuoi ca),
+  // ca ngan thi it moc - khong cong so lan diem danh vao 1 con so co dinh.
   const times = [];
-  if (count === 1) {
+  // moc dau: roi ngau nhien trong khoang [0, maxGap] tinh tu dau khung gio, de khong phai luc nao cung
+  // diem danh ngay dau ca (van giu tinh bat ngo o dau ca).
+  let cursor = windowStart + Math.random() * Math.min(maxGapMs, totalMs);
+  while (cursor <= windowEnd) {
+    times.push(Math.round(cursor));
+    cursor += minGapMs + Math.random() * (maxGapMs - minGapMs);
+  }
+  // truong hop ca qua ngan, vong lap tren co the khong sinh moc nao -> dam bao co it nhat 1 moc
+  if (times.length === 0) {
     times.push(Math.round(windowStart + Math.random() * totalMs));
-  } else {
-    const gaps = [];
-    for (let i = 0; i < count - 1; i++) {
-      gaps.push(minGapMs + Math.random() * (maxGapMs - minGapMs));
-    }
-    const span = gaps.reduce((a, b) => a + b, 0);
-    const maxStartOffset = Math.max(0, totalMs - span);
-    let cursor = windowStart + Math.random() * maxStartOffset;
-    for (let i = 0; i < count; i++) {
-      times.push(Math.round(cursor));
-      if (i < count - 1) cursor += gaps[i];
-    }
   }
 
   const entries = times
